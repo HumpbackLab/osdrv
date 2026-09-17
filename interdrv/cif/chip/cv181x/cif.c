@@ -2936,6 +2936,9 @@ static int _init_resource(struct platform_device *pdev)
 
 	/* reset pin */
 	for (i = 0; i < MAX_LINK_NUM; ++i) {
+		int inactive_level;
+		int ret;
+
 		link = &dev->link[i];
 		link->dev = &pdev->dev;
 		link->mac_clk = RX_MAC_CLK_400M;
@@ -2944,11 +2947,25 @@ static int _init_resource(struct platform_device *pdev)
 		if (link->snsr_rst_pin < 0)
 			break;
 
-		if (gpio_request(link->snsr_rst_pin, "snsr-rst-gpio"))
-			return 0;
+		ret = gpio_request(link->snsr_rst_pin, "snsr-rst-gpio");
+		if (ret) {
+			dev_err(&pdev->dev, "failed to request sensor reset GPIO %d: %d\n",
+				link->snsr_rst_pin, ret);
+			return ret;
+		}
 
-		dev_info(&pdev->dev, "rst_pin = %d, pol = %d\n",
-			link->snsr_rst_pin, link->snsr_rst_pol);
+		/* XSHUTDOWN must be high (inactive) before the sensor can respond. */
+		inactive_level = (link->snsr_rst_pol == OF_GPIO_ACTIVE_LOW) ? 1 : 0;
+		ret = gpio_direction_output(link->snsr_rst_pin, inactive_level);
+		if (ret) {
+			dev_err(&pdev->dev, "failed to release sensor reset GPIO %d: %d\n",
+				link->snsr_rst_pin, ret);
+			gpio_free(link->snsr_rst_pin);
+			return ret;
+		}
+
+		dev_info(&pdev->dev, "rst_pin = %d, pol = %d, inactive level = %d\n",
+			link->snsr_rst_pin, link->snsr_rst_pol, inactive_level);
 	}
 
 	/* sw reset */
